@@ -1,21 +1,29 @@
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits, ChannelType } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
 
 /**
- * ENV
+ * ENV VARIABLES (Railway)
  */
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+if (!DISCORD_TOKEN || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("❌ Missing environment variables");
+  process.exit(1);
+}
+
 /**
- * CLIENTS
+ * SUPABASE CLIENT
  */
 const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY
 );
 
+/**
+ * DISCORD CLIENT (READ-ONLY)
+ */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -32,30 +40,43 @@ client.once("ready", () => {
 });
 
 /**
- * MESSAGE LISTENER
+ * MESSAGE LISTENER — ANNOUNCEMENTS ONLY
  */
 client.on("messageCreate", async (message) => {
   try {
-    if (message.author.bot) return;
+    // Ignore DMs
     if (!message.guild) return;
 
-    // Change channel name later if needed
-    if (message.channel.name !== "announcements") return;
+    // ONLY Announcement Channels (📢)
+    if (message.channel.type !== ChannelType.GuildAnnouncement) return;
 
-    await supabase.from("discord_announcements").insert({
-      project_name: message.guild.name,
-      channel_name: message.channel.name,
-      content: message.content,
-      tag: "announcement"
-    });
+    // Ignore empty announcements
+    if (!message.content || !message.content.trim()) return;
 
-    console.log("📥 Announcement saved:", message.content.slice(0, 50));
+    // Optional: prevent duplicates (basic safety)
+    const content = message.content.trim();
+
+    const { error } = await supabase
+      .from("discord_announcements")
+      .insert({
+        project_name: message.guild.name,
+        channel_name: message.channel.name,
+        content: content,
+        tag: "announcement"
+      });
+
+    if (error) {
+      console.error("❌ Supabase insert failed:", error.message);
+      return;
+    }
+
+    console.log("📥 Announcement saved:", content.slice(0, 80));
   } catch (err) {
-    console.error("❌ Error saving message:", err.message);
+    console.error("❌ Unexpected error:", err.message);
   }
 });
 
 /**
- * START
+ * LOGIN
  */
 client.login(DISCORD_TOKEN);
