@@ -26,15 +26,14 @@ client.once("ready", () => {
 
 client.on("messageCreate", async (message) => {
   try {
-    // 1. IGNORE CHECKS
-    if (!message.guild) return; // Ignore DMs
-    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return; // Only listen to your inbox
-    if (!message.webhookId) return; // Followed posts are ALWAYS webhooks
+    // 1. Ignore Checks
+    if (!message.guild) return; 
+    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
+    if (!message.webhookId) return; // Followed announcements are webhooks
 
-    // 2. BUILD CONTENT
+    // 2. Build Content (Text + Embeds)
     let finalContent = message.content || "";
-
-    // Add Embeds (Announcements usually use embeds)
+    
     if (message.embeds.length > 0) {
       message.embeds.forEach((e) => {
         if (e.title) finalContent += `\n**${e.title}**`;
@@ -43,23 +42,20 @@ client.on("messageCreate", async (message) => {
       });
     }
 
-    // 3. DEDUPLICATION (Prevent saving the same update twice)
+    // 3. Deduplication
     const signature = `DISCORD_ID:${message.id}`;
     if (finalContent.includes(signature)) return;
 
-    // ---------------------------------------------------------
-    // ✅ THE FIX: GET THE REAL SOURCE NAME
-    // ---------------------------------------------------------
-    // For "Followed" messages, the 'author' is the Webhook.
-    // The Webhook's username IS the name of the project (e.g. "Sui Network").
-    const sourceName = message.author.username; 
+    // 4. ✅ THE FIX: Get the Source Name (Project Name)
+    // When a channel is "Followed", message.author.username is the project's name.
+    const sourceProjectName = message.author.username; 
 
-    // 4. SAVE TO SUPABASE
+    // 5. Save to Supabase
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
-        project_name: sourceName,      // <--- Saves "Sui Network"
-        channel_name: message.channel.name, // Saves your channel name (e.g. "updates")
+        project_name: sourceProjectName,     // <--- Saves "Sui Network", etc.
+        channel_name: message.channel.name,  // Saves your inbox channel name
         content: finalContent.trim(),
         tag: "announcement"
       });
@@ -67,7 +63,7 @@ client.on("messageCreate", async (message) => {
     if (error) {
       console.error("❌ Supabase insert failed:", error.message);
     } else {
-      console.log(`📥 Saved update from: ${sourceName}`);
+      console.log(`📥 Saved update from: ${sourceProjectName}`);
     }
 
   } catch (err) {
