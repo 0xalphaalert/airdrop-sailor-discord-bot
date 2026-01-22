@@ -1,9 +1,11 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
-import 'dotenv/config'; // Make sure you install dotenv if running locally
+// On Railway, variables are loaded automatically, but this line is fine to keep
+import 'dotenv/config'; 
 
 /**
  * ENV VARIABLES
+ * Make sure these are set in Railway "Variables" tab!
  */
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -16,24 +18,26 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent // <--- REQUIRED: Make sure this is enabled in Discord Dev Portal
   ]
 });
 
 client.once("ready", () => {
-  console.log(`✅ Airdrop Sailor Bot logged in as ${client.user.tag}`);
+  console.log(`✅ Bot logged in as ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
   try {
-    // 1. Ignore Checks
+    // 1. CHECKS
     if (!message.guild) return; 
     if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
-    if (!message.webhookId) return; // Followed announcements are webhooks
-
-    // 2. Build Content (Text + Embeds)
-    let finalContent = message.content || "";
     
+    // 2. CHECK IF IT IS A WEBHOOK (Followed channels are always webhooks)
+    // If it's a normal user message, we might ignore it or handle differently
+    if (!message.webhookId) return; 
+
+    // 3. BUILD CONTENT
+    let finalContent = message.content || "";
     if (message.embeds.length > 0) {
       message.embeds.forEach((e) => {
         if (e.title) finalContent += `\n**${e.title}**`;
@@ -42,32 +46,30 @@ client.on("messageCreate", async (message) => {
       });
     }
 
-    // 3. Deduplication
-    const signature = `DISCORD_ID:${message.id}`;
-    if (finalContent.includes(signature)) return;
+    // 4. GET THE REAL SOURCE NAME
+    // message.guild.name = YOUR server (Airdrop Sailor HQ)
+    // message.author.username = THE PROJECT NAME (e.g., "Sui Network")
+    const sourceName = message.author.username;
 
-    // 4. ✅ THE FIX: Get the Source Name (Project Name)
-    // When a channel is "Followed", message.author.username is the project's name.
-    const sourceProjectName = message.author.username; 
-
-    // 5. Save to Supabase
+    // 5. INSERT TO SUPABASE
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
-        project_name: sourceProjectName,     // <--- Saves "Sui Network", etc.
-        channel_name: message.channel.name,  // Saves your inbox channel name
+        project_name: sourceName,          // ✅ Saves "Sui Network"
+        channel_name: message.channel.name, // Saves "announcements"
         content: finalContent.trim(),
         tag: "announcement"
       });
 
     if (error) {
-      console.error("❌ Supabase insert failed:", error.message);
+      console.error("❌ Supabase Error:", error.message);
     } else {
-      console.log(`📥 Saved update from: ${sourceProjectName}`);
+      console.log(`📥 Saved update from: ${sourceName}`);
     }
 
   } catch (err) {
-    console.error("❌ Unexpected error:", err.message);
+    console.error("❌ Error:", err.message);
   }
 });
+
 client.login(DISCORD_TOKEN);
