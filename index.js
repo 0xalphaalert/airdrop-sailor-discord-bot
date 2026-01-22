@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
 // On Railway, variables are loaded automatically, but this line is fine to keep
-import 'dotenv/config'; 
+ 
 
 /**
  * ENV VARIABLES
