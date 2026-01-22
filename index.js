@@ -1,29 +1,26 @@
-import { Client, GatewayIntentBits, ChannelType } from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
 
 /**
- * ENV VARIABLES (Railway)
+ * ENV
  */
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!DISCORD_TOKEN || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("❌ Missing environment variables");
-  process.exit(1);
-}
+/**
+ * CONSTANTS
+ */
+const ANNOUNCEMENTS_CHANNEL_ID = "1463920012908695671";
 
 /**
- * SUPABASE CLIENT
+ * CLIENTS
  */
 const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY
 );
 
-/**
- * DISCORD CLIENT (READ-ONLY)
- */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -40,28 +37,51 @@ client.once("ready", () => {
 });
 
 /**
- * MESSAGE LISTENER — ANNOUNCEMENTS ONLY
+ * MESSAGE LISTENER — FOLLOWED ANNOUNCEMENTS ONLY
  */
 client.on("messageCreate", async (message) => {
   try {
     // Ignore DMs
     if (!message.guild) return;
 
-    // ONLY Announcement Channels (📢)
-    if (message.channel.type !== ChannelType.GuildAnnouncement) return;
+    // Only your announcements inbox (TEXT channel)
+    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
 
-    // Ignore empty announcements
-    if (!message.content || !message.content.trim()) return;
+    // Followed announcements always come via webhook
+    if (!message.webhookId) return;
 
-    // Optional: prevent duplicates (basic safety)
-    const content = message.content.trim();
+    // Build unified content (TEXT + LINKS + EMBEDS + ATTACHMENTS)
+    let finalContent = message.content || "";
 
+    // Add embed content
+    if (message.embeds.length > 0) {
+      message.embeds.forEach((e) => {
+        if (e.title) finalContent += `\n\n🔹 ${e.title}`;
+        if (e.description) finalContent += `\n${e.description}`;
+        if (e.url) finalContent += `\n🔗 ${e.url}`;
+      });
+    }
+
+    // Add attachments
+    if (message.attachments.size > 0) {
+      message.attachments.forEach((a) => {
+        finalContent += `\n📎 ${a.url}`;
+      });
+    }
+
+    // Deduplication (basic, safe)
+    const signature = `DISCORD_ID:${message.id}`;
+    if (finalContent.includes(signature)) return;
+
+    finalContent += `\n\n${signature}`;
+
+    // Save to Supabase (MATCHES YOUR TABLE)
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
         project_name: message.guild.name,
         channel_name: message.channel.name,
-        content: content,
+        content: finalContent.trim(),
         tag: "announcement"
       });
 
@@ -70,13 +90,13 @@ client.on("messageCreate", async (message) => {
       return;
     }
 
-    console.log("📥 Announcement saved:", content.slice(0, 80));
+    console.log("📥 Announcement saved:", finalContent.slice(0, 80));
   } catch (err) {
     console.error("❌ Unexpected error:", err.message);
   }
 });
 
 /**
- * LOGIN
+ * START
  */
 client.login(DISCORD_TOKEN);
