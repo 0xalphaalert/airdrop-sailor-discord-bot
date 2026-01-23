@@ -41,11 +41,11 @@ client.on("messageCreate", async (message) => {
     }
     
     // CHECK 2: Webhook ID
-    // DISABLE THIS TEMPORARILY FOR TESTING:
-    // if (!message.webhookId) {
-    //   console.log("⛔ IGNORED: Not a webhook (User message).");
-    //   return; 
-    // } 
+    // ✅ ENABLE THIS FOR PRODUCTION (So it ignores your chat messages)
+    if (!message.webhookId) {
+       // console.log("⛔ IGNORED: Not a webhook (User message)."); // Optional log
+       return; 
+    } 
 
     // BUILD CONTENT
     let finalContent = message.content || "";
