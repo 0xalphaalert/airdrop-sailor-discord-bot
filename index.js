@@ -1,16 +1,15 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
-// On Railway, variables are loaded automatically, but this line is fine to keep
- 
 
 /**
  * ENV VARIABLES
- * Make sure these are set in Railway "Variables" tab!
  */
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ANNOUNCEMENTS_CHANNEL_ID = "1463920012908695671"; // Your specific inbox channel
+
+// ⚠️ VERIFY THIS ID IS CORRECT!
+const ANNOUNCEMENTS_CHANNEL_ID = "1463920012908695671"; 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -18,27 +17,40 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent // <--- REQUIRED: Make sure this is enabled in Discord Dev Portal
+    GatewayIntentBits.MessageContent
   ]
 });
 
 client.once("ready", () => {
-  console.log(`✅ Bot logged in as ${client.user.tag}`);
+  console.log(`✅ DEBUG MODE: Bot logged in as ${client.user.tag}`);
+  console.log(`👀 Watching Channel ID: ${ANNOUNCEMENTS_CHANNEL_ID}`);
 });
 
 client.on("messageCreate", async (message) => {
-  try {
-    // 1. CHECKS
-    if (!message.guild) return; 
-    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
-    
-    // 2. CHECK IF IT IS A WEBHOOK (Followed channels are always webhooks)
-    // If it's a normal user message, we might ignore it or handle differently
-    if (!message.webhookId) return; 
+  // LOG EVERYTHING TO SEE WHAT IS HAPPENING
+  console.log(`\n📨 NEW MESSAGE RECEIVED!`);
+  console.log(`   From Channel ID: ${message.channel.id} (Expected: ${ANNOUNCEMENTS_CHANNEL_ID})`);
+  console.log(`   Is Webhook?: ${!!message.webhookId}`);
+  console.log(`   Author: ${message.author.username}`);
 
-    // 3. BUILD CONTENT
+  try {
+    // CHECK 1: Channel ID
+    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) {
+      console.log("⛔ IGNORED: Message is in the wrong channel.");
+      return; 
+    }
+    
+    // CHECK 2: Webhook ID
+    // NOTE: If you are testing by typing "hello" yourself, this will block it!
+    if (!message.webhookId) {
+      console.log("⛔ IGNORED: Not a webhook (User message).");
+      return; 
+    } 
+
+    // BUILD CONTENT
     let finalContent = message.content || "";
     if (message.embeds.length > 0) {
+      console.log(`   Message has ${message.embeds.length} embeds.`);
       message.embeds.forEach((e) => {
         if (e.title) finalContent += `\n**${e.title}**`;
         if (e.description) finalContent += `\n${e.description}`;
@@ -46,29 +58,28 @@ client.on("messageCreate", async (message) => {
       });
     }
 
-    // 4. GET THE REAL SOURCE NAME
-    // message.guild.name = YOUR server (Airdrop Sailor HQ)
-    // message.author.username = THE PROJECT NAME (e.g., "Sui Network")
     const sourceName = message.author.username;
+    console.log(`   Attempting to save for project: ${sourceName}...`);
 
-    // 5. INSERT TO SUPABASE
+    // INSERT TO SUPABASE
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
-        project_name: sourceName,          // ✅ Saves "Sui Network"
-        channel_name: message.channel.name, // Saves "announcements"
+        project_name: sourceName,
+        channel_name: message.channel.name,
         content: finalContent.trim(),
         tag: "announcement"
       });
 
     if (error) {
-      console.error("❌ Supabase Error:", error.message);
+      console.error("❌ SUPABASE ERROR:", error.message);
+      console.error("   Details:", error);
     } else {
-      console.log(`📥 Saved update from: ${sourceName}`);
+      console.log(`✅ SUCCESS: Saved update from ${sourceName}`);
     }
 
   } catch (err) {
-    console.error("❌ Error:", err.message);
+    console.error("❌ CRITICAL ERROR:", err.message);
   }
 });
 
