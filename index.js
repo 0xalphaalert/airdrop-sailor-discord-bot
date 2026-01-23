@@ -41,11 +41,11 @@ client.on("messageCreate", async (message) => {
     }
     
     // CHECK 2: Webhook ID
-    // NOTE: If you are testing by typing "hello" yourself, this will block it!
-    if (!message.webhookId) {
-      console.log("⛔ IGNORED: Not a webhook (User message).");
-      return; 
-    } 
+    // DISABLE THIS TEMPORARILY FOR TESTING:
+    // if (!message.webhookId) {
+    //   console.log("⛔ IGNORED: Not a webhook (User message).");
+    //   return; 
+    // } 
 
     // BUILD CONTENT
     let finalContent = message.content || "";
