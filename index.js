@@ -1,14 +1,11 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
+import 'dotenv/config'; 
 
-/**
- * ENV VARIABLES
- */
+// --- CONFIGURATION ---
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-// ⚠️ VERIFY THIS ID IS CORRECT!
 const ANNOUNCEMENTS_CHANNEL_ID = "1463920012908695671"; 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -22,64 +19,86 @@ const client = new Client({
 });
 
 client.once("ready", () => {
-  console.log(`✅ DEBUG MODE: Bot logged in as ${client.user.tag}`);
-  console.log(`👀 Watching Channel ID: ${ANNOUNCEMENTS_CHANNEL_ID}`);
+  console.log(`✅ Airdrop Sailor Bot Online as ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
-  // LOG EVERYTHING TO SEE WHAT IS HAPPENING
-  console.log(`\n📨 NEW MESSAGE RECEIVED!`);
-  console.log(`   From Channel ID: ${message.channel.id} (Expected: ${ANNOUNCEMENTS_CHANNEL_ID})`);
-  console.log(`   Is Webhook?: ${!!message.webhookId}`);
-  console.log(`   Author: ${message.author.username}`);
+  // 1. SECURITY: Only listen to the specific channel & Webhooks
+  if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
+  if (!message.webhookId) return; 
 
   try {
-    // CHECK 1: Channel ID
-    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) {
-      console.log("⛔ IGNORED: Message is in the wrong channel.");
-      return; 
-    }
+    let rawContent = message.content;
+    let projectName = "Unknown Server";
+    let channelName = "general";
+    let tag = "text"; 
+
+    // 2. PARSE SPY PHONE FORMAT
+    // Input format: "📱ServerName #channel: Author Message..."
+    // Example: "📱testperson's server #general: Suryakantdalai Hello world"
     
-    // CHECK 2: Webhook ID
-    // ✅ ENABLE THIS FOR PRODUCTION (So it ignores your chat messages)
-    if (!message.webhookId) {
-       // console.log("⛔ IGNORED: Not a webhook (User message)."); // Optional log
-       return; 
-    } 
+    // Step A: Remove the phone emoji
+    let cleanLine = rawContent.replace(/^📱\s*/, '').trim();
 
-    // BUILD CONTENT
-    let finalContent = message.content || "";
-    if (message.embeds.length > 0) {
-      console.log(`   Message has ${message.embeds.length} embeds.`);
-      message.embeds.forEach((e) => {
-        if (e.title) finalContent += `\n**${e.title}**`;
-        if (e.description) finalContent += `\n${e.description}`;
-        if (e.url) finalContent += `\n🔗 ${e.url}`;
-      });
+    // Step B: Extract Server and Channel (Find the #)
+    // We look for the pattern: "ServerName #ChannelName:"
+    const metaMatch = cleanLine.match(/^(.*?) #(.*?):/);
+
+    if (metaMatch) {
+        projectName = metaMatch[1].trim(); // "testperson's server"
+        channelName = metaMatch[2].trim(); // "general"
+        
+        // Step C: Extract Author and Message
+        // Remove the "Server #Channel:" part to get the rest
+        let restOfMessage = cleanLine.substring(metaMatch[0].length).trim();
+        
+        // We assume the first word is the Author, followed by the message
+        // OR if there is a newline, the first line is the author.
+        // Let's try to split by the first space to make the first word BOLD (Author)
+        const firstSpaceIndex = restOfMessage.indexOf(' ');
+        if (firstSpaceIndex > 0) {
+            const author = restOfMessage.substring(0, firstSpaceIndex);
+            const msgText = restOfMessage.substring(firstSpaceIndex + 1);
+            // Reformat content to: "**Author** msgText"
+            rawContent = `**${author}** ${msgText}`;
+        } else {
+            // Only one word? It's just the author
+            rawContent = `**${restOfMessage}**`;
+        }
+    } else {
+        // Fallback if format is different
+        projectName = "Spy Update"; 
     }
 
-    const sourceName = message.author.username;
-    console.log(`   Attempting to save for project: ${sourceName}...`);
+    // 3. SMART TAGGING (Blue Badge Logic)
+    const lowerProj = projectName.toLowerCase();
+    const lowerChan = channelName.toLowerCase();
+    const lowerContent = rawContent.toLowerCase();
 
-    // INSERT TO SUPABASE
+    if (lowerChan.includes("announcement") || 
+        lowerChan.includes("update") || 
+        lowerChan.includes("news") ||
+        lowerContent.includes("📢") || 
+        lowerProj.includes("announcement")) {
+      tag = "announcement";
+    }
+
+    console.log(`📥 Saving: ${projectName} (#${channelName})`);
+
+    // 4. SAVE TO SUPABASE
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
-        project_name: sourceName,
-        channel_name: message.channel.name,
-        content: finalContent.trim(),
-        tag: "announcement"
+        project_name: projectName,
+        channel_name: channelName,
+        content: rawContent,
+        tag: tag
       });
 
-    if (error) {
-      console.error("❌ SUPABASE ERROR:", error.message);
-      console.error("   Details:", error);
-    } else {
-      console.log(`✅ SUCCESS: Saved update from ${sourceName}`);
-    }
+    if (error) console.error("❌ DB Error:", error.message);
 
   } catch (err) {
-    console.error("❌ CRITICAL ERROR:", err.message);
+    console.error("Critical Error:", err);
   }
 });
 
