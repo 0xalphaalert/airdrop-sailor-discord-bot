@@ -2,7 +2,6 @@ import { Client, GatewayIntentBits } from "discord.js";
 import { createClient } from "@supabase/supabase-js";
 import 'dotenv/config'; 
 
-// --- CONFIGURATION ---
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -19,11 +18,10 @@ const client = new Client({
 });
 
 client.once("ready", () => {
-  console.log(`✅ Airdrop Sailor Bot Online as ${client.user.tag}`);
+  console.log(`✅ Spy Bot Online as ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
-  // 1. SECURITY: Only listen to the specific channel & Webhooks
   if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
   if (!message.webhookId) return; 
 
@@ -31,67 +29,54 @@ client.on("messageCreate", async (message) => {
     let rawContent = message.content;
     let projectName = "Unknown Server";
     let channelName = "general";
-    let tag = "text"; 
+    let authorName = "Unknown";
+    let messageBody = rawContent;
+    let tag = "chat"; 
 
-    // 2. PARSE SPY PHONE FORMAT
-    // Input format: "📱ServerName #channel: Author Message..."
-    // Example: "📱testperson's server #general: Suryakantdalai Hello world"
-    
-    // Step A: Remove the phone emoji
+    // 1. PARSE SPY FORMAT: "📱Server #channel: Author Message..."
     let cleanLine = rawContent.replace(/^📱\s*/, '').trim();
 
-    // Step B: Extract Server and Channel (Find the #)
-    // We look for the pattern: "ServerName #ChannelName:"
-    const metaMatch = cleanLine.match(/^(.*?) #(.*?):/);
+    // Regex breakdown:
+    // ^(.*?)       -> Group 1: Server Name (lazy match until #)
+    // #(.*?):      -> Group 2: Channel Name (between # and :)
+    // \s* -> Spaces
+    // (\S+)        -> Group 3: Author Name (First word after colon)
+    // (.*)$        -> Group 4: The rest of the message
+    const match = cleanLine.match(/^(.*?) #(.*?):\s*(\S+)(.*)$/s);
 
-    if (metaMatch) {
-        projectName = metaMatch[1].trim(); // "testperson's server"
-        channelName = metaMatch[2].trim(); // "general"
+    if (match) {
+        projectName = match[1].trim(); // "testperson's server"
+        channelName = match[2].trim(); // "general"
+        authorName = match[3].trim();  // "Suryakantdalai"
+        messageBody = match[4].trim(); // "Alze Airdrop Stage-1..."
         
-        // Step C: Extract Author and Message
-        // Remove the "Server #Channel:" part to get the rest
-        let restOfMessage = cleanLine.substring(metaMatch[0].length).trim();
-        
-        // We assume the first word is the Author, followed by the message
-        // OR if there is a newline, the first line is the author.
-        // Let's try to split by the first space to make the first word BOLD (Author)
-        const firstSpaceIndex = restOfMessage.indexOf(' ');
-        if (firstSpaceIndex > 0) {
-            const author = restOfMessage.substring(0, firstSpaceIndex);
-            const msgText = restOfMessage.substring(firstSpaceIndex + 1);
-            // Reformat content to: "**Author** msgText"
-            rawContent = `**${author}** ${msgText}`;
-        } else {
-            // Only one word? It's just the author
-            rawContent = `**${restOfMessage}**`;
-        }
+        // We save content as "Author|Message" to separate them easily in dashboard
+        rawContent = `${authorName}|${messageBody}`;
     } else {
-        // Fallback if format is different
-        projectName = "Spy Update"; 
+        // Fallback if regex fails
+        projectName = "Spy Update";
+        rawContent = `Bot|${cleanLine}`;
     }
 
-    // 3. SMART TAGGING (Blue Badge Logic)
-    const lowerProj = projectName.toLowerCase();
+    // 2. SMART TAGGING
     const lowerChan = channelName.toLowerCase();
-    const lowerContent = rawContent.toLowerCase();
+    const lowerBody = messageBody.toLowerCase();
 
-    if (lowerChan.includes("announcement") || 
-        lowerChan.includes("update") || 
-        lowerChan.includes("news") ||
-        lowerContent.includes("📢") || 
-        lowerProj.includes("announcement")) {
+    if (lowerChan.includes("announc") || lowerChan.includes("news") || lowerBody.includes("📢")) {
       tag = "announcement";
+    } else if (lowerChan.includes("general") || lowerChan.includes("chat")) {
+      tag = "chat";
     }
 
-    console.log(`📥 Saving: ${projectName} (#${channelName})`);
+    console.log(`📥 Saving: ${projectName} (#${channelName}) - ${authorName}`);
 
-    // 4. SAVE TO SUPABASE
+    // 3. SAVE TO DB
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
         project_name: projectName,
         channel_name: channelName,
-        content: rawContent,
+        content: rawContent, // Saved as "Author|Message"
         tag: tag
       });
 
