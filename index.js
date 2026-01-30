@@ -27,56 +27,69 @@ client.on("messageCreate", async (message) => {
 
   try {
     let rawContent = message.content;
-    let projectName = "Unknown Server";
+    
+    // Default placeholders
+    let serverName = "Unknown Server";
     let channelName = "general";
-    let authorName = "Unknown";
-    let messageBody = rawContent;
-    let tag = "chat"; 
+    let authorName = "Unknown Author";
+    let msgContent = rawContent;
+    let tag = "chat";
 
-    // 1. PARSE SPY FORMAT: "📱Server #channel: Author Message..."
-    let cleanLine = rawContent.replace(/^📱\s*/, '').trim();
+    // --- PARSER LOGIC ---
+    // Expected Format from MacroDroid: "📱 ServerName #Channel: AuthorName \n\n Message..."
+    // We clean the "📱" and split by newlines first.
+    
+    // 1. Remove Phone Emoji
+    const cleanRaw = rawContent.replace(/^📱\s*/, '').trim();
+    
+    // 2. Split Title (Line 1) from Body (Line 2+)
+    // If MacroDroid sends "\n\n", we split by that.
+    const firstLineEnd = cleanRaw.indexOf('\n');
+    let titleLine = "";
+    let bodyText = "";
 
-    // Regex breakdown:
-    // ^(.*?)       -> Group 1: Server Name (lazy match until #)
-    // #(.*?):      -> Group 2: Channel Name (between # and :)
-    // \s* -> Spaces
-    // (\S+)        -> Group 3: Author Name (First word after colon)
-    // (.*)$        -> Group 4: The rest of the message
-    const match = cleanLine.match(/^(.*?) #(.*?):\s*(\S+)(.*)$/s);
-
-    if (match) {
-        projectName = match[1].trim(); // "testperson's server"
-        channelName = match[2].trim(); // "general"
-        authorName = match[3].trim();  // "Suryakantdalai"
-        messageBody = match[4].trim(); // "Alze Airdrop Stage-1..."
-        
-        // We save content as "Author|Message" to separate them easily in dashboard
-        rawContent = `${authorName}|${messageBody}`;
+    if (firstLineEnd > -1) {
+        titleLine = cleanRaw.substring(0, firstLineEnd).trim(); // "testperson's server #general: Suryakantdalai"
+        bodyText = cleanRaw.substring(firstLineEnd).trim();     // "Alze Airdrop Claim..."
     } else {
-        // Fallback if regex fails
-        projectName = "Spy Update";
-        rawContent = `Bot|${cleanLine}`;
+        titleLine = cleanRaw; // Fallback if no body
+        bodyText = "";
     }
 
-    // 2. SMART TAGGING
-    const lowerChan = channelName.toLowerCase();
-    const lowerBody = messageBody.toLowerCase();
+    // 3. Deconstruct the Title Line: "Server #Channel: Author"
+    // Regex: Capture text before #, text between # and :, text after :
+    const metaMatch = titleLine.match(/^(.*?)#(.*?):\s*(.*)$/);
 
-    if (lowerChan.includes("announc") || lowerChan.includes("news") || lowerBody.includes("📢")) {
+    if (metaMatch) {
+        serverName = metaMatch[1].trim();  // "testperson's server"
+        channelName = metaMatch[2].trim(); // "general"
+        authorName = metaMatch[3].trim();  // "Suryakantdalai"
+    } else {
+        // Fallback logic if format breaks
+        serverName = "Spy Update";
+        bodyText = cleanRaw; 
+    }
+
+    // 4. Save formatted content string for Frontend
+    // We will save it as: "Server|Channel|Author|Message"
+    // This makes it 100% easy for index.html to split and place correctly.
+    const dbContent = `${serverName}|${channelName}|${authorName}|${bodyText}`;
+
+    // 5. Smart Tagging
+    if (channelName.toLowerCase().includes("announcement") || 
+        channelName.toLowerCase().includes("news") || 
+        bodyText.includes("📢")) {
       tag = "announcement";
-    } else if (lowerChan.includes("general") || lowerChan.includes("chat")) {
-      tag = "chat";
     }
 
-    console.log(`📥 Saving: ${projectName} (#${channelName}) - ${authorName}`);
+    console.log(`📥 Saving: ${serverName} -> ${authorName}`);
 
-    // 3. SAVE TO DB
     const { error } = await supabase
       .from("discord_announcements")
       .insert({
-        project_name: projectName,
+        project_name: serverName, // We save Server Name here for search
         channel_name: channelName,
-        content: rawContent, // Saved as "Author|Message"
+        content: dbContent,       // Saving the packed format
         tag: tag
       });
 
