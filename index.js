@@ -101,3 +101,13 @@ client.on("messageCreate", async (message) => {
 });
 
 client.login(DISCORD_TOKEN);
+
+import http from 'http';
+
+// --- TRICK FOR RENDER ---
+const server = http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Spy Bot is running!');
+});
+server.listen(process.env.PORT || 3000);
+// ------------------------
